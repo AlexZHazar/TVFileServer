@@ -32,6 +32,7 @@
         android:textColor="#4CAF50"
         android:layout_marginBottom="24dp"/>
 
+    <!-- QR-код -->
     <ImageView
         android:id="@+id/qrView"
         android:layout_width="300dp"
@@ -39,17 +40,18 @@
         android:layout_gravity="center_horizontal"
         android:background="#FFFFFF"
         android:padding="16dp"
+        android:visibility="visible"
         android:layout_marginBottom="24dp"/>
 
     <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="81dp"
+        android:layout_width="354dp"
+        android:layout_height="79dp"
         android:layout_gravity="center_horizontal"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/startButton"
-            android:layout_width="200dp"
+            android:layout_width="171dp"
             android:layout_height="match_parent"
             android:layout_marginEnd="16dp"
             android:backgroundTint="#4CAF50"
@@ -58,7 +60,7 @@
 
         <Button
             android:id="@+id/stopButton"
-            android:layout_width="200dp"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:backgroundTint="#F44336"
             android:enabled="false"
@@ -74,5 +76,15 @@
         android:textSize="16sp"
         android:textColor="#888888"
         android:layout_marginTop="32dp"/>
+
+    <!-- Подсказка для пользователя -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Отсканируйте QR-код на телефоне"
+        android:textSize="14sp"
+        android:textColor="#4CAF50"
+        android:layout_marginTop="16dp"
+        android:layout_gravity="center_horizontal"/>
 
 </LinearLayout>

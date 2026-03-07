@@ -60,4 +60,7 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Для QR-кодов - ВАЖНО!
+    implementation("com.google.zxing:core:3.5.3")
 }

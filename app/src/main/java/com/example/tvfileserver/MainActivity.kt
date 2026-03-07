@@ -3,6 +3,8 @@ package com.example.tvfileserver
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -17,6 +19,11 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+
+// ПРАВИЛЬНЫЕ ИМПОРТЫ ДЛЯ ZXING
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 
@@ -44,9 +51,7 @@ class MainActivity : AppCompatActivity() {
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
 
-        // Скрываем QR View так как не используем QR-коды
-        qrView.visibility = android.view.View.GONE
-
+        // Сначала проверяем разрешения
         checkPermissions()
 
         startButton.setOnClickListener { startServer() }
@@ -99,11 +104,13 @@ class MainActivity : AppCompatActivity() {
             statusText.text = "✅ Сервер запущен"
             ipText.text = serverUrl
 
-            // Показываем Toast с адресом вместо QR-кода
-            Toast.makeText(this, "Сервер запущен по адресу: $serverUrl", Toast.LENGTH_LONG).show()
+            // Генерируем QR-код
+            generateQRCode(serverUrl)
 
             startButton.isEnabled = false
             stopButton.isEnabled = true
+
+            Toast.makeText(this, "Сервер запущен на порту $PORT\nАдрес: $serverUrl", Toast.LENGTH_LONG).show()
 
         } catch (e: Exception) {
             statusText.text = "❌ Ошибка: ${e.message}"
@@ -117,6 +124,7 @@ class MainActivity : AppCompatActivity() {
 
         statusText.text = "⏹️ Сервер остановлен"
         ipText.text = ""
+        qrView.setImageDrawable(null)
 
         startButton.isEnabled = true
         stopButton.isEnabled = false
@@ -128,6 +136,34 @@ class MainActivity : AppCompatActivity() {
         val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         val ipInt = wifiManager.connectionInfo.ipAddress
         return Formatter.formatIpAddress(ipInt)
+    }
+
+    private fun generateQRCode(text: String) {
+        try {
+            val writer = QRCodeWriter()
+            val bitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, 512, 512)
+
+            val width = bitMatrix.width
+            val height = bitMatrix.height
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    val isBlack = bitMatrix.get(x, y)
+                    bitmap.setPixel(x, y, if (isBlack) Color.BLACK else Color.WHITE)
+                }
+            }
+
+            qrView.setImageBitmap(bitmap)
+            qrView.visibility = ImageView.VISIBLE
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Не удалось создать QR-код: ${e.message}", Toast.LENGTH_SHORT).show()
+            // Показываем текстом, если QR не сгенерировался
+            ipText.textSize = 16f
+            ipText.setTextColor(Color.WHITE)
+        }
     }
 
     override fun onDestroy() {
