@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION", "UNCHECKED_CAST")
-
 package com.example.tvfileserver
 
 import android.util.Log
@@ -8,10 +6,12 @@ import fi.iki.elonen.NanoHTTPD.Response
 import fi.iki.elonen.NanoHTTPD.newFixedLengthResponse
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 
 class FileServer(port: Int) : NanoHTTPD(port) {
     private val TAG = "FileServer"
     private val baseDir = File("/storage/emulated/0/Download")
+    private val MAX_FILE_SIZE = 1024L * 1024L * 1024L // 1GB лимит
 
     init {
         if (!baseDir.exists()) {
@@ -39,25 +39,66 @@ class FileServer(port: Int) : NanoHTTPD(port) {
 
     private fun handlePost(session: IHTTPSession): Response {
         return try {
+            // Устанавливаем временную директорию для больших файлов
+            System.setProperty("java.io.tmpdir", baseDir.absolutePath)
+
             val files = HashMap<String, String>()
+
+            // Парсим multipart данные с увеличенным лимитом
             session.parseBody(files)
 
             val tempFile = files["postData"]
             if (tempFile != null) {
-                val fileName = session.parameters["filename"]?.firstOrNull() ?: "uploaded_${System.currentTimeMillis()}"
+                val temp = File(tempFile)
+
+                // Проверяем размер файла
+                if (temp.length() > MAX_FILE_SIZE) {
+                    temp.delete()
+                    return newFixedLengthResponse(
+                        Response.Status.PAYLOAD_TOO_LARGE,
+                        "text/plain",
+                        "File too large. Maximum size is 1GB"
+                    )
+                }
+
+                // Получаем имя файла из параметров
+                val fileName = session.parameters["filename"]?.firstOrNull()
+                    ?: "uploaded_${System.currentTimeMillis()}"
+
                 val targetFile = File(baseDir, fileName)
 
-                File(tempFile).copyTo(targetFile, overwrite = true)
+                // Копируем файл с буферизацией
+                temp.copyTo(targetFile, overwrite = true)
+                temp.delete() // Удаляем временный файл
 
-                newFixedLengthResponse(Response.Status.OK, "text/plain",
-                    "File uploaded successfully: $fileName")
+                Log.d(TAG, "File uploaded: $fileName, size: ${targetFile.length()}")
+
+                newFixedLengthResponse(
+                    Response.Status.OK,
+                    "text/plain",
+                    "File uploaded successfully: $fileName"
+                )
             } else {
-                newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "No file uploaded")
+                newFixedLengthResponse(
+                    Response.Status.BAD_REQUEST,
+                    "text/plain",
+                    "No file uploaded"
+                )
             }
+        } catch (e: NanoHTTPD.ResponseException) {
+            Log.e(TAG, "Upload error: ${e.message}")
+            newFixedLengthResponse(
+                e.status,
+                "text/plain",
+                "Upload failed: ${e.message}"
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Upload error: ${e.message}")
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain",
-                "Upload failed: ${e.message}")
+            newFixedLengthResponse(
+                Response.Status.INTERNAL_ERROR,
+                "text/plain",
+                "Upload failed: ${e.message}"
+            )
         }
     }
 
@@ -94,6 +135,7 @@ class FileServer(port: Int) : NanoHTTPD(port) {
                 .btn { background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
                 .btn:hover { background: #1976D2; }
                 .file-info { color: #666; margin-top: 10px; }
+                .warning { color: #f44336; font-size: 14px; margin-top: 5px; }
                 a { text-decoration: none; color: #2196F3; }
                 a:hover { text-decoration: underline; }
             </style>
@@ -102,6 +144,7 @@ class FileServer(port: Int) : NanoHTTPD(port) {
             <div class="container">
                 <h1>📺 TV File Server</h1>
                 <p class="file-info">Папка загрузок: ${baseDir.absolutePath}</p>
+                <p class="warning">Максимальный размер файла: 1GB</p>
                 
                 <div class="upload-form">
                     <h3>📤 Загрузить файл</h3>
@@ -128,6 +171,14 @@ class FileServer(port: Int) : NanoHTTPD(port) {
                 document.getElementById('fileInput').addEventListener('change', function(e) {
                     if (e.target.files.length > 0) {
                         document.getElementById('filename').value = e.target.files[0].name;
+                        
+                        // Проверка размера файла на клиенте
+                        var fileSize = e.target.files[0].size;
+                        var maxSize = 1024 * 1024 * 1024; // 1GB
+                        if (fileSize > maxSize) {
+                            alert('Файл слишком большой! Максимальный размер: 1GB');
+                            e.target.value = '';
+                        }
                     }
                 });
             </script>
@@ -154,12 +205,28 @@ class FileServer(port: Int) : NanoHTTPD(port) {
                     else -> "application/octet-stream"
                 }
 
-                newFixedLengthResponse(Response.Status.OK, mimeType, FileInputStream(file), file.length())
+                val response = newFixedLengthResponse(
+                    Response.Status.OK,
+                    mimeType,
+                    FileInputStream(file),
+                    file.length()
+                )
+                response.addHeader("Content-Disposition", "attachment; filename=\"$fileName\"")
+                response
+
             } catch (e: Exception) {
-                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error reading file")
+                newFixedLengthResponse(
+                    Response.Status.INTERNAL_ERROR,
+                    "text/plain",
+                    "Error reading file: ${e.message}"
+                )
             }
         } else {
-            newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "File not found")
+            newFixedLengthResponse(
+                Response.Status.NOT_FOUND,
+                "text/plain",
+                "File not found"
+            )
         }
     }
 
@@ -182,7 +249,11 @@ class FileServer(port: Int) : NanoHTTPD(port) {
             """.trimIndent()
             newFixedLengthResponse(Response.Status.OK, "text/html", html)
         } else {
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Delete failed")
+            newFixedLengthResponse(
+                Response.Status.INTERNAL_ERROR,
+                "text/plain",
+                "Delete failed"
+            )
         }
     }
 
