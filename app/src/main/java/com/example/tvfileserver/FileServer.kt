@@ -39,66 +39,31 @@ class FileServer(port: Int) : NanoHTTPD(port) {
 
     private fun handlePost(session: IHTTPSession): Response {
         return try {
-            // Устанавливаем временную директорию для больших файлов
-            System.setProperty("java.io.tmpdir", baseDir.absolutePath)
-
             val files = HashMap<String, String>()
-
-            // Парсим multipart данные с увеличенным лимитом
             session.parseBody(files)
 
             val tempFile = files["postData"]
             if (tempFile != null) {
                 val temp = File(tempFile)
-
-                // Проверяем размер файла
-                if (temp.length() > MAX_FILE_SIZE) {
-                    temp.delete()
-                    return newFixedLengthResponse(
-                        Response.Status.PAYLOAD_TOO_LARGE,
-                        "text/plain",
-                        "File too large. Maximum size is 1GB"
-                    )
-                }
-
-                // Получаем имя файла из параметров
                 val fileName = session.parameters["filename"]?.firstOrNull()
                     ?: "uploaded_${System.currentTimeMillis()}"
 
                 val targetFile = File(baseDir, fileName)
-
-                // Копируем файл с буферизацией
-                temp.copyTo(targetFile, overwrite = true)
-                temp.delete() // Удаляем временный файл
+                temp.copyTo(targetFile, overwrite = true, bufferSize = 8192)
+                temp.delete()
 
                 Log.d(TAG, "File uploaded: $fileName, size: ${targetFile.length()}")
 
-                newFixedLengthResponse(
-                    Response.Status.OK,
-                    "text/plain",
-                    "File uploaded successfully: $fileName"
-                )
+                // Освобождаем память
+                System.gc()
+
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             } else {
-                newFixedLengthResponse(
-                    Response.Status.BAD_REQUEST,
-                    "text/plain",
-                    "No file uploaded"
-                )
+                newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "No file")
             }
-        } catch (e: NanoHTTPD.ResponseException) {
-            Log.e(TAG, "Upload error: ${e.message}")
-            newFixedLengthResponse(
-                e.status,
-                "text/plain",
-                "Upload failed: ${e.message}"
-            )
         } catch (e: Exception) {
-            Log.e(TAG, "Upload error: ${e.message}")
-            newFixedLengthResponse(
-                Response.Status.INTERNAL_ERROR,
-                "text/plain",
-                "Upload failed: ${e.message}"
-            )
+            Log.e(TAG, "Upload error", e)
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error")
         }
     }
 
@@ -195,14 +160,18 @@ class FileServer(port: Int) : NanoHTTPD(port) {
 
         return if (file.exists() && file.isFile) {
             try {
-                val mimeType = when {
-                    fileName.endsWith(".mp4") || fileName.endsWith(".avi") || fileName.endsWith(".mkv") -> "video/mp4"
-                    fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || fileName.endsWith(".png") -> "image/jpeg"
-                    fileName.endsWith(".mp3") || fileName.endsWith(".wav") -> "audio/mpeg"
-                    fileName.endsWith(".txt") || fileName.endsWith(".log") -> "text/plain"
-                    fileName.endsWith(".pdf") -> "application/pdf"
-                    fileName.endsWith(".apk") -> "application/vnd.android.package-archive"
-                    else -> "application/octet-stream"
+                // Для APK используем специальный MIME тип
+                val mimeType = if (fileName.endsWith(".apk")) {
+                    "application/vnd.android.package-archive"
+                } else {
+                    when {
+                        fileName.endsWith(".mp4") || fileName.endsWith(".avi") || fileName.endsWith(".mkv") -> "video/mp4"
+                        fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || fileName.endsWith(".png") -> "image/jpeg"
+                        fileName.endsWith(".mp3") || fileName.endsWith(".wav") -> "audio/mpeg"
+                        fileName.endsWith(".txt") || fileName.endsWith(".log") -> "text/plain"
+                        fileName.endsWith(".pdf") -> "application/pdf"
+                        else -> "application/octet-stream"
+                    }
                 }
 
                 val response = newFixedLengthResponse(
@@ -212,6 +181,8 @@ class FileServer(port: Int) : NanoHTTPD(port) {
                     file.length()
                 )
                 response.addHeader("Content-Disposition", "attachment; filename=\"$fileName\"")
+                response.addHeader("Content-Length", file.length().toString())
+                response.addHeader("Accept-Ranges", "bytes")
                 response
 
             } catch (e: Exception) {
